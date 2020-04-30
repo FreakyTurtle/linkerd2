@@ -12,6 +12,7 @@ type WatchedClusterConfig struct {
 	APIConfig     []byte
 	ClusterName   string
 	ClusterDomain string
+	TrustAnchors  string
 }
 
 // ParseRemoteClusterSecret extracts the credentials used to access the remote cluster
@@ -33,5 +34,6 @@ func ParseRemoteClusterSecret(secret *corev1.Secret) (*WatchedClusterConfig, err
 		APIConfig:     config,
 		ClusterName:   clusterName,
 		ClusterDomain: domain,
+		TrustAnchors:  secret.Annotations[consts.RemoteClusterTrustAnchorsAnnotation],
 	}, nil
 }

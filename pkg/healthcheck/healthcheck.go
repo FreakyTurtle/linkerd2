@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/x509"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -361,18 +362,19 @@ type HealthChecker struct {
 	*Options
 
 	// these fields are set in the process of running checks
-	kubeAPI          *k8s.KubernetesAPI
-	kubeVersion      *k8sVersion.Info
-	controlPlanePods []corev1.Pod
-	apiClient        public.APIClient
-	latestVersions   version.Channels
-	serverVersion    string
-	linkerdConfig    *configPb.All
-	uuid             string
-	issuerCert       *tls.Cred
-	trustAnchors     []*x509.Certificate
-	cniDaemonSet     *appsv1.DaemonSet
-	serviceMirrorNs  string
+	kubeAPI              *k8s.KubernetesAPI
+	kubeVersion          *k8sVersion.Info
+	controlPlanePods     []corev1.Pod
+	apiClient            public.APIClient
+	latestVersions       version.Channels
+	serverVersion        string
+	linkerdConfig        *configPb.All
+	uuid                 string
+	issuerCert           *tls.Cred
+	trustAnchors         []*x509.Certificate
+	cniDaemonSet         *appsv1.DaemonSet
+	serviceMirrorNs      string
+	remoteClusterConfigs []*sm.WatchedClusterConfig
 }
 
 // NewHealthChecker returns an initialized HealthChecker
@@ -1292,6 +1294,14 @@ func (hc *HealthChecker) allCategories() []category {
 						return hc.checkRemoteClusterGatewaysHealth(ctx)
 					},
 				},
+				{
+					description: "clusters share trust anchors",
+					hintAnchor:  "l5d-clusters-share-anchors",
+					fatal:       true,
+					check: func(ctx context.Context) error {
+						return hc.checkRemoteClusterAnchors()
+					},
+				},
 			},
 		},
 	}
@@ -1632,6 +1642,27 @@ func (hc *HealthChecker) checkServiceMirrorLocalRBAC() error {
 	return nil
 }
 
+func (hc *HealthChecker) checkRemoteClusterAnchors() error {
+	if len(hc.remoteClusterConfigs) == 0 {
+		return &SkipError{Reason: "no remote cluster configs"}
+	}
+
+	localAnchors := base64.StdEncoding.EncodeToString([]byte(hc.linkerdConfig.Global.IdentityContext.TrustAnchorsPem))
+
+	var offendingClusters []string
+	for _, cfg := range hc.remoteClusterConfigs {
+		if cfg.TrustAnchors != localAnchors {
+			offendingClusters = append(offendingClusters, fmt.Sprintf("* %s", cfg.ClusterName))
+		}
+	}
+
+	if len(offendingClusters) > 0 {
+		return fmt.Errorf("Problematic clusters:\n\t%s", strings.Join(offendingClusters, "\n\t"))
+	}
+
+	return nil
+}
+
 func (hc *HealthChecker) checkRemoteClusterConnectivity() error {
 	options := metav1.ListOptions{
 		FieldSelector: fmt.Sprintf("%s=%s", "type", k8s.MirrorSecretType),
@@ -1683,6 +1714,7 @@ func (hc *HealthChecker) checkRemoteClusterConnectivity() error {
 			errors = append(errors, fmt.Sprintf("* cluster: [%s]: Insufficient Service permissions: %s", config.ClusterName, err))
 		}
 
+		hc.remoteClusterConfigs = append(hc.remoteClusterConfigs, config)
 	}
 
 	if len(errors) > 0 {

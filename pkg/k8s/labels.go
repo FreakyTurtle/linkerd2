@@ -369,6 +369,11 @@ const (
 	// using custom cluster domains
 	RemoteClusterDomainAnnotation = SvcMirrorPrefix + "/remote-cluster-domain"
 
+	// RemoteClusterTrustAnchorsAnnotation is present on the secret
+	// carrying the config of the remote cluster, to allow for
+	// validating that remote clusters share the same trust anchors
+	RemoteClusterTrustAnchorsAnnotation = SvcMirrorPrefix + "/remote-cluster-trust-anchors"
+
 	// RemoteResourceVersionAnnotation is the last observed remote resource
 	// version of a mirrored resource. Useful when doing updates
 	RemoteResourceVersionAnnotation = SvcMirrorPrefix + "/remote-resource-version"
